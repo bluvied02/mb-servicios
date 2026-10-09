@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "MB Servicios",
+  "short_name": "MB Servicios",
+  "description": "Gestión de la cerrajería: clientes y domicilios, trabajos, presupuestos, stock, cuentas y fiado.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#213670",
+  "lang": "es-AR",
+  "icons": [
+    { "src": "icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
