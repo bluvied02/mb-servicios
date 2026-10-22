@@ -50,31 +50,51 @@ VISTAS.caja = function (main) {
       el('p', { clase: 'sub', estilo: { margin: '8px 0 0' } }, 'La ganancia cuenta lo hecho en el mes aunque esté fiado. Los gastos de mercadería ya incluyen lo que compraste para stock, así que es aproximada.')))
 }
 
+const MEDIO_GASTO = { efectivo: 'Efectivo', transferencia: 'Transferencia', cheque: 'Cheque' }
 function filaGasto (g) {
+  const prov = g.proveedorId ? nombreProveedor(g.proveedorId) : ''
   return el('button', { clase: 'item', onclick: () => editarGasto(g) },
-    el('div', { clase: 'ico-lista gasto' }, icono('gasto')),
-    el('div', { clase: 'cuerpo' }, el('b', {}, g.concepto || g.categoria || 'Gasto'), el('span', { clase: 'sub' }, [g.categoria, g.medio === 'transferencia' ? 'Transferencia' : 'Efectivo'].filter(Boolean).join(' · '))),
+    el('div', { clase: 'ico-lista gasto' }, icono(g.proveedorId ? 'camion' : 'gasto')),
+    el('div', { clase: 'cuerpo' }, el('b', {}, g.concepto || g.categoria || 'Gasto'),
+      el('span', { clase: 'sub' }, [fechaCorta(g.fecha), g.pagoProveedor ? 'Pago a ' + prov : prov, g.pagoProveedor ? null : g.categoria, MEDIO_GASTO[g.medio] || 'Efectivo'].filter(Boolean).join(' · '))),
     el('div', { clase: 'fin num rojo' }, el('b', {}, '-' + plata(g.monto))))
 }
 
 function editarGasto (base) {
   const g = Object.assign({ fecha: hoyISO(), medio: 'efectivo', categoria: 'Combustible' }, base || {})
   const nuevo = !g.id
+  let provId = g.proveedorId || null
   const categoria = selector(CATEGORIAS_GASTO, g.categoria)
   const concepto = entrada(g.concepto, { placeholder: 'Ej.: nafta, mecha, alquiler de octubre' })
   const monto = entradaPlata(g.monto, { clase: 'num plata-grande' })
   const fecha = entradaFecha(g.fecha)
-  const medio = botonesElegir([{ valor: 'efectivo', texto: 'Efectivo' }, { valor: 'transferencia', texto: 'Transferencia' }], g.medio)
+  const medio = botonesElegir([{ valor: 'efectivo', texto: 'Efectivo' }, { valor: 'transferencia', texto: 'Transferencia' }, { valor: 'cheque', texto: 'Cheque' }], g.medio)
+  // Si es para un proveedor: puede ser un gasto suelto o un pago de lo que se le debe.
+  const esPago = casilla('Es un pago de lo que le debo', !!g.pagoProveedor)
+  const zonaPago = el('div', {})
+  const pintarPago = () => {
+    if (!provId || g.compraId) return limpiar(zonaPago)
+    const k = Calculo.cuentaProveedor(Datos.lista('compra').filter((c) => c.proveedorId === provId), Datos.lista('gasto').filter((x) => x.proveedorId === provId && x.id !== g.id))
+    poner(zonaPago, k.debe > 0 || g.pagoProveedor ? [esPago, el('p', { clase: 'sub', estilo: { marginTop: '-6px' } }, 'Le debés ' + plata(k.debe) + '. Si lo tildás, el pago baja esa deuda.')] : null)
+  }
+  const prov = botonProveedor(provId, (x) => { provId = x ? x.id : null; pintarPago() }, { ninguno: true })
   const h = hoja({
     titulo: nuevo ? 'Gasto' : 'Editar gasto',
     cuerpo: [campo('Monto', monto), el('div', { clase: 'dos' }, campo('Qué', categoria), campo('Fecha', fecha)), campo('Detalle', concepto), el('div', { clase: 'campo' }, 'Cómo se pagó', medio),
+      el('div', { clase: 'campo' }, 'Proveedor (opcional)', prov), zonaPago,
+      g.compraId ? el('p', { clase: 'sub' }, 'Es el pago de una compra. ', el('button', { clase: 'btn chico', onclick: () => verCompra(g.compraId) }, 'Ver la compra')) : null,
       nuevo ? null : el('button', { clase: 'btn peligro chico', onclick: async () => { if (await confirmar('Borrar gasto', '¿Borrarlo?', 'Borrar', true)) { Datos.borrar(g.id); h.cerrar() } } }, icono('basura'), 'Borrar gasto')],
     pie: [el('button', { clase: 'btn', onclick: () => h.cerrar() }, 'Cancelar'), el('button', { clase: 'btn primario', onclick: () => {
       const m = monto.valor()
       if (!(m > 0)) { toast('Poné el monto.', 'mal'); return }
-      Datos.guardar(Object.assign({}, g, { tipo: 'gasto', monto: Calculo.r2(m), categoria: categoria.value, concepto: concepto.value.trim(), fecha: fecha.value || hoyISO(), medio: medio.valor() }))
+      const x = Object.assign({}, g, { tipo: 'gasto', monto: Calculo.r2(m), categoria: categoria.value, concepto: concepto.value.trim(), fecha: fecha.value || hoyISO(), medio: medio.valor(), proveedorId: provId })
+      x.pagoProveedor = !!provId && (g.compraId ? true : (zonaPago.contains(esPago) && esPago.input.checked))
+      if (!x.pagoProveedor) delete x.pagoProveedor
+      if (!provId) delete x.compraId
+      Datos.guardar(x)
       h.cerrar()
       toast('Gasto anotado', 'ok')
     } }, 'Guardar')]
   })
+  pintarPago()
 }

@@ -67,6 +67,7 @@ VISTAS.trabajos = function (main) {
     cabecera('Trabajos', null,
       el('button', { clase: 'btn', onclick: () => editarTrabajo({ clase: 'presupuesto' }) }, icono('presupuesto'), 'Presupuesto'),
       el('button', { clase: 'btn primario', onclick: () => editarTrabajo({ clase: 'trabajo' }) }, icono('sumar'), 'Trabajo')),
+    segTrabajos('trabajos'),
     el('div', { clase: 'filtros' }, [['abiertos', 'Para hacer'], ['presupuestos', 'Presupuestos'], ['terminados', 'Terminados'], ['todos', 'Todos']].map(([id, n]) =>
       el('button', { clase: 'filtro' + (filtro === id ? ' activo' : ''), onclick: () => irA('trabajos', id) }, n, el('span', { clase: 'n' }, grupos[id].length)))),
     el('div', { clase: 'buscador' }, icono('buscar'), buscar),
@@ -185,6 +186,9 @@ function editarTrabajo (base, alGuardar) {
   const servicios = (conf.servicios || SERVICIOS).filter((s) => esVenta || s !== 'Venta de mostrador')
   const elegirServicio = botonesElegir(servicios.map((s) => ({ valor: s, texto: s })), t.servicio, (v) => { t.servicio = v; pintarApertura() })
   const fecha = el('input', { type: 'datetime-local', valor: t.fecha ? String(t.fecha).slice(0, 16) : '' })
+  const mismoDia = el('div', {})
+  const pintarMismoDia = () => poner(mismoDia, fecha.value ? avisoMismoDia(fecha.value.slice(0, 10), t.id) : null)
+  fecha.addEventListener('change', pintarMismoDia)
   const descripcion = areaTexto(t.descripcion, { placeholder: esVenta ? 'Opcional' : 'Qué hay que hacer. Ej.: no abre la puerta del frente, cambiar cilindro…' })
   const manoObra = entradaPlata(t.manoObra || '')
   const descuento = entradaPlata(t.descuento || '')
@@ -258,7 +262,8 @@ function editarTrabajo (base, alGuardar) {
       zonaCliente, zonaLugar,
       esVenta ? null : el('div', { clase: 'campo' }, 'Servicio', elegirServicio),
       zonaApertura,
-      esVenta ? null : campo(t.clase === 'presupuesto' ? 'Fecha estimada (opcional)' : 'Cuándo (opcional)', fecha),
+      esVenta ? null : campo(t.clase === 'presupuesto' ? 'Fecha de la visita (opcional)' : 'Cuándo (opcional)', fecha),
+      esVenta ? null : mismoDia,
       campo(esVenta ? 'Notas' : 'Qué hay que hacer', descripcion),
       el('h3', {}, esVenta ? 'Qué se vendió' : 'Materiales'),
       zonaItems,
@@ -271,7 +276,7 @@ function editarTrabajo (base, alGuardar) {
     ],
     pie: [el('button', { clase: 'btn', onclick: () => h.cerrar() }, 'Cancelar'), el('button', { clase: 'btn primario', onclick: guardar }, esVenta && nuevo ? 'Guardar y cobrar' : 'Guardar')]
   })
-  pintarCliente(); pintarLugar(); pintarApertura(); pintarItems(); pintarTotal()
+  pintarCliente(); pintarLugar(); pintarApertura(); pintarItems(); pintarTotal(); pintarMismoDia()
   if (nuevo && !t.clienteId && !esVenta) setTimeout(() => elegirCliente((x) => { t.clienteId = x ? x.id : null; pintarCliente(); pintarLugar() }), 80)
 }
 
@@ -348,6 +353,10 @@ function verTrabajo (id) {
       if (c && c.telefono) acciones.push(b('Recordar por WhatsApp', 'whatsapp', () => recordarDeuda(c, [{ trabajo: t, saldo: saldo.saldo, vence: t.vence }])))
     }
     if (t.clase === 'trabajo' && !cobrable && t.estado !== 'cancelado') acciones.push(b('Cobrar seña', 'plata', () => registrarPago({ clienteId: t.clienteId, trabajoId: t.id })))
+    if (t.clase !== 'venta' && t.estado !== 'terminado' && t.estado !== 'cancelado') {
+      acciones.push(b(t.fecha ? 'Cambiar fecha' : 'Agendar', 'calendario', () => cambiarFechaTrabajo(t)))
+      if (t.fecha && c && c.telefono) acciones.push(b(t.turnoAvisado ? 'Avisar el turno otra vez' : 'Avisar el turno', 'whatsapp', () => avisarTurno(t)))
+    }
     acciones.push(b(t.clase === 'presupuesto' ? 'PDF del presupuesto' : 'PDF', 'pdf', () => pdfTrabajo(t)))
     if (c && c.telefono) acciones.push(b(t.clase === 'presupuesto' ? 'Mandar por WhatsApp' : 'Mandar detalle', 'whatsapp', () => abrirWhatsApp(c.telefono, textoTrabajoWA(t))))
     if (t.estado !== 'cancelado') acciones.push(b('Editar', 'editar', () => editarTrabajo(t)))

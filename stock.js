@@ -25,7 +25,7 @@ VISTAS.stock = function (main) {
     const q = buscar.value.trim()
     APP.filtros.stockBusca = q
     let lista = filtro === 'reponer' ? reponer : filtro === 'inactivos' ? Datos.lista('producto').filter((p) => p.activo === false) : filtro === 'todos' ? todos : todos.filter((p) => p.categoria === filtro)
-    if (q) lista = lista.filter((p) => coincide([p.nombre, p.codigo, p.marca, p.categoria, p.proveedor].join(' '), q))
+    if (q) lista = lista.filter((p) => coincide([p.nombre, p.codigo, p.marca, p.categoria, p.proveedor, (proveedorDeProducto(p) || {}).nombre].join(' '), q))
     lista.sort((a, b) => a.nombre.localeCompare(b.nombre))
     poner(caja, lista.length ? el('div', { clase: 'tarjeta sin-relleno lista' }, lista.slice(0, 500).map((p) => {
       const n = st.get(p.id) || 0
@@ -48,28 +48,30 @@ VISTAS.stock = function (main) {
       kpi('Stock al costo', plata(valor), 'Lo que tenés invertido')),
     el('div', { clase: 'filtros' }, [['todos', 'Todos'], ['reponer', 'Para reponer (' + reponer.length + ')']].concat(categorias.map((c) => [c, c])).concat([['inactivos', 'Dados de baja']]).map(([id, n]) =>
       el('button', { clase: 'filtro' + (filtro === id ? ' activo' : ''), onclick: () => irA('stock', id) }, n))),
-    filtro === 'reponer' && reponer.length ? el('div', { clase: 'chips', estilo: { marginBottom: '10px' } }, el('button', { clase: 'btn chico', onclick: () => listaPedido(reponer, st) }, icono('whatsapp'), 'Armar pedido para el proveedor')) : null,
+    filtro === 'reponer' && reponer.length ? el('div', { clase: 'chips', estilo: { marginBottom: '10px' } }, botonesPedido(reponer, st)) : null,
     el('div', { clase: 'buscador' }, icono('buscar'), buscar),
     caja)
   pintarLista()
 }
 
+// Un boton de pedido por cada proveedor que tiene algo para reponer.
+function botonesPedido (reponer, st) {
+  const provs = new Map()
+  let sinProv = 0
+  for (const p of reponer) { const x = proveedorDeProducto(p); if (x) provs.set(x.id, x); else sinProv++ }
+  return [...provs.values()].map((x) => el('button', { clase: 'btn chico', onclick: () => pedidoProveedor(x) }, icono('whatsapp'), 'Pedido a ' + x.nombre))
+    .concat(sinProv ? [el('button', { clase: 'btn chico', onclick: () => listaPedido(reponer.filter((p) => !proveedorDeProducto(p)), st) }, icono('whatsapp'), 'Pedido de ' + cuantos(sinProv, 'producto', 'productos') + ' sin proveedor')] : [])
+}
 function listaPedido (reponer, st) {
   const lineas = ['*Pedido ' + Datos.config().negocio + '*', '']
-  const porProv = new Map()
-  for (const p of reponer) { const k = p.proveedor || 'Sin proveedor'; if (!porProv.has(k)) porProv.set(k, []); porProv.get(k).push(p) }
-  for (const [prov, ps] of porProv) {
-    if (porProv.size > 1) lineas.push('_' + prov + '_')
-    for (const p of ps) {
-      const falta = Math.max(1, Math.ceil((Number(p.minimo) || 0) * 2 - (st.get(p.id) || 0)))
-      lineas.push('• ' + falta + ' × ' + p.nombre + (p.codigo ? ' (' + p.codigo + ')' : ''))
-    }
+  for (const p of reponer) {
+    const falta = Math.max(1, Math.ceil((Number(p.minimo) || 0) * 2 - (st.get(p.id) || 0)))
+    lineas.push('• ' + falta + ' × ' + p.nombre + (p.codigo ? ' (' + p.codigo + ')' : ''))
   }
-  const texto = lineas.join('\n')
-  const area = areaTexto(texto, { rows: 12 })
+  const area = areaTexto(lineas.join('\n'), { rows: 12 })
   const h = hoja({
     titulo: 'Pedido',
-    cuerpo: [el('p', { clase: 'sub' }, 'Pide lo necesario para llegar al doble del mínimo. Corregilo si querés antes de mandarlo.'), area],
+    cuerpo: [el('p', { clase: 'sub' }, 'Estos productos no tienen proveedor. Elegíselo en cada producto y el pedido se arma solo por proveedor.'), area],
     pie: [el('button', { clase: 'btn', onclick: () => copiarTexto(area.value) }, icono('copiar'), 'Copiar'),
       el('button', { clase: 'btn primario', onclick: () => { window.open('https://wa.me/?text=' + encodeURIComponent(area.value), '_blank', 'noopener'); h.cerrar() } }, icono('whatsapp'), 'WhatsApp')]
   })
@@ -103,7 +105,8 @@ function verProducto (id) {
         el('div', { clase: 'fila' }, el('span', { clase: 'tenue' }, 'Costo'), el('b', { clase: 'num' }, plata(p.costo || 0))),
         el('div', { clase: 'fila' }, el('span', { clase: 'tenue' }, p.precioFijo ? 'Precio fijo (ganancia)' : 'Ganancia'), el('b', {}, p.precioFijo ? (Calculo.porcentajeDesdePrecio(p.costo, p.precio) ?? '-') + '%' : (p.porcentaje || 0) + '%')),
         el('div', { clase: 'fila' }, el('span', { clase: 'tenue' }, 'Ganás por unidad'), el('b', { clase: 'num verde' }, plata(precio - (Number(p.costo) || 0)))),
-        [['Código', p.codigo], ['Marca', p.marca], ['Categoría', p.categoria], ['Proveedor', p.proveedor], ['Dónde está', p.ubicacion]].filter((x) => x[1]).map(([r, v]) => el('div', { clase: 'fila' }, el('span', { clase: 'tenue' }, r), el('b', {}, v)))),
+        [['Código', p.codigo], ['Marca', p.marca], ['Categoría', p.categoria], ['Proveedor', proveedorDeProducto(p) ? null : p.proveedor], ['Dónde está', p.ubicacion]].filter((x) => x[1]).map(([r, v]) => el('div', { clase: 'fila' }, el('span', { clase: 'tenue' }, r), el('b', {}, v)))),
+      proveedorDeProducto(p) ? el('button', { clase: 'opcion', estilo: { marginBottom: '12px' }, onclick: () => verProveedor(proveedorDeProducto(p).id) }, icono('camion'), el('span', { clase: 'txt' }, el('span', { clase: 'sub' }, 'Proveedor'), el('b', {}, proveedorDeProducto(p).nombre)), icono('flecha', 'tenue')) : null,
       el('div', { clase: 'acciones-grandes' },
         el('button', { clase: 'btn primario', onclick: () => entradaMercaderia(p) }, icono('sumar'), 'Entró'),
         el('button', { clase: 'btn', onclick: () => ajustarStock(p, n) }, icono('editar'), 'Conté y hay…')),
@@ -126,12 +129,12 @@ function editarProducto (base, alGuardar) {
   const p = Object.assign({ porcentaje: conf.margen, unidad: 'unidad', minimo: 0, activo: true }, base || {})
   const nuevo = !p.id
   const categorias = [...new Set(Datos.lista('producto').map((x) => x.categoria).filter(Boolean))]
-  const proveedores = [...new Set(Datos.lista('producto').map((x) => x.proveedor).filter(Boolean))]
   const nombre = entrada(p.nombre, { placeholder: 'Ej.: Cilindro Kallay 60 mm' })
   const codigo = entrada(p.codigo, { placeholder: 'Opcional' })
   const marca = entrada(p.marca)
   const categoria = entrada(p.categoria, { list: 'lista-cat', placeholder: 'Ej.: Cilindros, Candados, Llaves vírgenes' })
-  const proveedor = entrada(p.proveedor, { list: 'lista-prov' })
+  let provId = (proveedorDeProducto(p) || {}).id || null
+  const proveedor = botonProveedor(provId, (x) => { provId = x ? x.id : null }, { ninguno: true })
   const ubicacion = entrada(p.ubicacion, { placeholder: 'Estante, cajón…' })
   const unidad = selector(UNIDADES, p.unidad)
   const costo = entradaPlata(p.costo)
@@ -153,7 +156,7 @@ function editarProducto (base, alGuardar) {
   const guardar = () => {
     if (!nombre.value.trim()) { toast('Poné el nombre.', 'mal'); return }
     Object.assign(p, {
-      tipo: 'producto', nombre: nombre.value.trim(), codigo: codigo.value.trim(), marca: marca.value.trim(), categoria: categoria.value.trim(), proveedor: proveedor.value.trim(),
+      tipo: 'producto', nombre: nombre.value.trim(), codigo: codigo.value.trim(), marca: marca.value.trim(), categoria: categoria.value.trim(), proveedorId: provId, proveedor: provId ? nombreProveedor(provId) : (proveedorDeProducto(p) ? '' : p.proveedor || ''),
       ubicacion: ubicacion.value.trim(), unidad: unidad.value, costo: costo.valor() || 0, minimo: aNumero(minimo.value) || 0, precioFijo: fijo
     })
     if (fijo) p.precio = precio.valor() || 0
@@ -171,7 +174,6 @@ function editarProducto (base, alGuardar) {
     completa: true,
     cuerpo: [
       el('datalist', { id: 'lista-cat' }, categorias.map((c) => el('option', { value: c }))),
-      el('datalist', { id: 'lista-prov' }, proveedores.map((c) => el('option', { value: c }))),
       campo('Nombre', nombre),
       el('div', { clase: 'dos' }, campo('Código', codigo), campo('Marca', marca)),
       el('div', { clase: 'dos' }, campo('Categoría', categoria), campo('Se vende por', unidad)),
@@ -180,7 +182,7 @@ function editarProducto (base, alGuardar) {
       avisoFijo,
       el('h3', {}, 'Stock'),
       el('div', { clase: 'dos' }, campo('Mínimo', minimo, 'Cuando quede esto o menos, te avisa'), nuevo ? campo('Cuántos hay ahora', inicial) : el('div', {})),
-      el('div', { clase: 'dos' }, campo('Proveedor', proveedor), campo('Dónde está', ubicacion))
+      el('div', { clase: 'campo' }, 'Proveedor', proveedor), campo('Dónde está', ubicacion)
     ],
     pie: [el('button', { clase: 'btn', onclick: () => h.cerrar() }, 'Cancelar'), el('button', { clase: 'btn primario', onclick: guardar }, 'Guardar')]
   })
@@ -188,70 +190,6 @@ function editarProducto (base, alGuardar) {
   if (!fijo) recalcular()
 }
 // Los movimientos de stock son fichas 'movstock'; en 'mov' va si fue 'inicial', 'compra' o 'ajuste'.
-
-// --- entro mercaderia (una o varias cosas) -------------------------------------------------------
-function entradaMercaderia (productoInicial) {
-  const conf = Datos.config()
-  const lineas = []
-  const zona = el('div', {})
-  const proveedor = entrada(productoInicial ? productoInicial.proveedor : '', { list: 'lista-prov2', placeholder: 'Opcional' })
-  const comoGasto = casilla('Anotarlo como gasto (sale de la caja)', true, () => pintarTotal())
-  const medio = selector([{ valor: 'efectivo', texto: 'Pagado en efectivo' }, { valor: 'transferencia', texto: 'Pagado por transferencia' }], 'efectivo')
-  const total = el('div', { clase: 'fila total' })
-  const pintarTotal = () => {
-    const t = lineas.reduce((s, l) => s + (l.cant || 0) * (l.costo || 0), 0)
-    poner(total, el('b', {}, 'Total'), el('b', { clase: 'num' }, plata(t)))
-    medio.hidden = !comoGasto.input.checked
-  }
-  const agregar = (p) => { lineas.push({ p, cant: 1, costo: Number(p.costo) || 0 }); pintar() }
-  const pintar = () => {
-    poner(zona, lineas.map((l, i) => {
-      const cant = entrada('1', { inputmode: 'decimal', clase: 'num chico-num' })
-      cant.value = fmtCant(l.cant)
-      const costo = entradaPlata(l.costo, { clase: 'num chico-num' })
-      const nuevoPrecio = el('span', { clase: 'sub' })
-      const pintarPrecio = () => {
-        const cambia = Calculo.r2(l.costo) !== Calculo.r2(l.p.costo || 0)
-        nuevoPrecio.textContent = cambia && !l.p.precioFijo ? 'Costo nuevo: el precio pasa a ' + plata(Calculo.precioDesdeCosto(l.costo, l.p.porcentaje, conf.redondeo)) : cambia ? 'Precio fijo: sigue en ' + plata(l.p.precio) : ''
-      }
-      cant.addEventListener('input', () => { l.cant = aNumero(cant.value) || 0; pintarTotal() })
-      costo.addEventListener('input', () => { l.costo = costo.valor() || 0; pintarTotal(); pintarPrecio() })
-      pintarPrecio()
-      return el('div', { clase: 'item-trabajo' },
-        el('div', { clase: 'nombre' }, el('b', {}, l.p.nombre), nuevoPrecio),
-        el('label', { clase: 'mini' }, 'Cant.', cant),
-        el('label', { clase: 'mini' }, 'Costo c/u', costo),
-        el('button', { type: 'button', clase: 'btn-ico', 'aria-label': 'Sacar', onclick: () => { lineas.splice(i, 1); pintar() } }, icono('basura')))
-    }), el('button', { type: 'button', clase: 'btn suave ancho', estilo: { margin: '4px 0 12px' }, onclick: () => elegirProducto(agregar) }, icono('sumar'), lineas.length ? 'Agregar otro producto' : 'Elegir producto'))
-    pintarTotal()
-  }
-  const guardar = () => {
-    const ok = lineas.filter((l) => l.cant > 0)
-    if (!ok.length) { toast('Elegí qué entró.', 'mal'); return }
-    const ahora = new Date().toISOString()
-    const fichas = []
-    for (const l of ok) {
-      fichas.push({ tipo: 'movstock', mov: 'compra', productoId: l.p.id, cantidad: l.cant, costo: l.costo, proveedor: proveedor.value.trim(), fecha: ahora })
-      const actual = Datos.get(l.p.id)
-      if (Calculo.r2(l.costo) !== Calculo.r2(actual.costo || 0) || (proveedor.value.trim() && !actual.proveedor)) fichas.push(Object.assign({}, actual, { costo: l.costo, proveedor: actual.proveedor || proveedor.value.trim() }))
-    }
-    const t = Calculo.r2(ok.reduce((s, l) => s + l.cant * l.costo, 0))
-    if (comoGasto.input.checked && t > 0) fichas.push({ tipo: 'gasto', fecha: hoyISO(), categoria: 'Mercadería', concepto: 'Mercadería' + (proveedor.value.trim() ? ' — ' + proveedor.value.trim() : ''), monto: t, medio: medio.value })
-    Datos.guardarVarias(fichas)
-    h.cerrar()
-    toast('Stock actualizado', 'ok')
-  }
-  const h = hoja({
-    titulo: 'Entró mercadería',
-    completa: true,
-    foco: false,
-    cuerpo: [el('datalist', { id: 'lista-prov2' }, [...new Set(Datos.lista('producto').map((x) => x.proveedor).filter(Boolean))].map((c) => el('option', { value: c }))),
-      zona, total, campo('Proveedor', proveedor), comoGasto, medio],
-    pie: [el('button', { clase: 'btn', onclick: () => h.cerrar() }, 'Cancelar'), el('button', { clase: 'btn primario', onclick: guardar }, 'Guardar')]
-  })
-  if (productoInicial) agregar(productoInicial)
-  else { pintar(); setTimeout(() => elegirProducto(agregar), 80) }
-}
 
 function ajustarStock (p, hay) {
   const cant = entrada(fmtCant(hay), { inputmode: 'decimal', clase: 'num numero-grande centro' })
@@ -275,11 +213,11 @@ function aumentarCostos () {
   const conf = Datos.config()
   const ps = Datos.lista('producto').filter((p) => p.activo !== false)
   const cats = [...new Set(ps.map((p) => p.categoria).filter(Boolean))].sort()
-  const provs = [...new Set(ps.map((p) => p.proveedor).filter(Boolean))].sort()
-  const cual = selector([{ valor: '', texto: 'Todos los productos' }].concat(cats.map((c) => ({ valor: 'c:' + c, texto: 'Categoría: ' + c }))).concat(provs.map((c) => ({ valor: 'p:' + c, texto: 'Proveedor: ' + c }))), '')
+  const provs = Datos.lista('proveedor').filter((x) => ps.some((p) => (proveedorDeProducto(p) || {}).id === x.id)).sort((a, b) => a.nombre.localeCompare(b.nombre))
+  const cual = selector([{ valor: '', texto: 'Todos los productos' }].concat(cats.map((c) => ({ valor: 'c:' + c, texto: 'Categoría: ' + c }))).concat(provs.map((x) => ({ valor: 'p:' + x.id, texto: 'Proveedor: ' + x.nombre }))), '')
   const pct = entrada('', { inputmode: 'decimal', clase: 'num numero-grande', placeholder: 'Ej.: 10' })
   const aviso = el('p', { clase: 'sub' })
-  const elegidos = () => ps.filter((p) => !cual.value || (cual.value.startsWith('c:') ? p.categoria === cual.value.slice(2) : p.proveedor === cual.value.slice(2)))
+  const elegidos = () => ps.filter((p) => !cual.value || (cual.value.startsWith('c:') ? p.categoria === cual.value.slice(2) : (proveedorDeProducto(p) || {}).id === cual.value.slice(2)))
   const pintarAviso = () => { const n = elegidos().length; aviso.textContent = n + ' productos. Sube el costo y el precio se recalcula solo (los de precio fijo no cambian de precio).' }
   cual.addEventListener('change', pintarAviso)
   const h = hoja({

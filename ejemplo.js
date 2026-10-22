@@ -21,6 +21,10 @@ function cargarEjemplo () {
     prod('Kit alarma 4 sensores', 'Cámaras y alarmas', 95000, 35, 1, 1, { marca: 'X-28' })
   ]
   const P = (nombre) => productos.find((p) => p.nombre.startsWith(nombre))
+  // Proveedores con ficha (Ferretería Central queda escrito en los productos, para probar 'Crear fichas').
+  const distri = { id: id(), tipo: 'proveedor', nombre: 'Distribuidora Río Cuarto', rubro: 'Cilindros y cerraduras', contacto: 'Sergio', telefono: '358 463-1200', cuit: '30-70011223-4', alias: 'distri.rio4', diasPago: 30, activo: true }
+  const keyline = { id: id(), tipo: 'proveedor', nombre: 'Keyline', rubro: 'Llaves de auto y chips', contacto: 'Mariana', telefono: '11 4555-0101', diasPago: 15, activo: true }
+  for (const p of productos) { if (p.proveedor === distri.nombre) p.proveedorId = distri.id; if (p.proveedor === keyline.nombre) p.proveedorId = keyline.id }
   const item = (p, cantidad) => ({ productoId: p.id, nombre: p.nombre, cantidad, precio: Calculo.precioProducto(p, 10), costo: p.costo })
 
   const dom = (nombre, direccion, cerraduras, extra) => Object.assign({ id: id(), nombre, direccion, localidad: 'Alejandro Roca', cerraduras: cerraduras.map((k) => Object.assign({ id: id() }, k)), llaves: [] }, extra || {})
@@ -47,6 +51,9 @@ function cargarEjemplo () {
     T(5, { clienteId: consorcio.id, domicilioId: consorcio.domicilios[0].id, servicio: 'Cámaras de seguridad', estado: 'pendiente', descripcion: 'Colocar 2 cámaras en el hall y la cochera', items: [item(P('Cámara IP'), 2)], manoObra: 45000, fecha: dia(0, '16:00'), creado: dia(-1), terminado: null }),
     T(6, { clienteId: gomez.id, vehiculoId: gomez.vehiculos[0].id, servicio: 'Llave de auto', estado: 'en_curso', descripcion: 'Copia de llave con chip para el Ka', items: [item(P('Llave con chip'), 1)], manoObra: 18000, fecha: dia(1, '10:00'), creado: dia(-1), terminado: null }),
     T(7, { clienteId: consorcio.id, domicilioId: consorcio.domicilios[0].id, clase: 'presupuesto', estado: 'pendiente', servicio: 'Alarmas', descripcion: 'Alarma para la cochera con 4 sensores', items: [item(P('Kit alarma'), 1)], manoObra: 60000, creado: dia(-2), terminado: null }),
+    T(9, { clienteId: rossi.id, domicilioId: rossi.domicilios[1].id, servicio: 'Cambio de combinación', estado: 'pendiente', descripcion: 'Cambio de inquilino', manoObra: 15000, fecha: dia(2, '11:30'), creado: dia(-1), terminado: null }),
+    T(10, { clienteId: lopez.id, domicilioId: lopez.domicilios[0].id, servicio: 'Reparación de cerradura', estado: 'pendiente', descripcion: 'La llave gira en falso', manoObra: 12000, fecha: dia(-1, '17:00'), creado: dia(-3), terminado: null }),
+    T(11, { clienteId: rossi.id, domicilioId: rossi.domicilios[2].id, servicio: 'Reparación de cerradura', estado: 'pendiente', descripcion: 'Revisar la reja del local', manoObra: 9000, creado: dia(-1), terminado: null }),
     T(8, { clase: 'venta', servicio: 'Venta de mostrador', items: [item(P('Llave virgen yale'), 4), item(P('Candado'), 1)], terminado: dia(0, '09:30'), creado: dia(0, '09:30'), garantiaDias: 0 })
   ]
   const pagos = [
@@ -61,5 +68,10 @@ function cargarEjemplo () {
     { tipo: 'gasto', fecha: sumarDias(hoy, -5), categoria: 'Herramientas', concepto: 'Juego de ganzúas', monto: 32000, medio: 'transferencia' }
   ]
   for (const p of productos) delete p._hay
-  Datos.guardarVarias([].concat(productos, [rossi, gomez, lopez, consorcio], trabajos, pagos, movs, gastos))
+  // Compras: una a cuenta (vencida) y una pagada.
+  const compra1 = { id: id(), tipo: 'compra', proveedorId: distri.id, fecha: sumarDias(hoy, -35), numero: 'A-0001-00012345', items: [{ productoId: P('Cilindro Kallay').id, nombre: P('Cilindro Kallay').nombre, cantidad: 5, costo: 9800 }, { productoId: P('Cerradura doble').id, nombre: P('Cerradura doble').nombre, cantidad: 2, costo: 18500 }], total: 86000, vence: sumarDias(hoy, -5) }
+  const compra2 = { id: id(), tipo: 'compra', proveedorId: keyline.id, fecha: sumarDias(hoy, -12), numero: 'R-552', items: [{ productoId: P('Llave con chip').id, nombre: P('Llave con chip').nombre, cantidad: 3, costo: 8500 }], total: 25500, vence: null }
+  gastos.push({ tipo: 'gasto', fecha: sumarDias(hoy, -35), categoria: 'Mercadería', concepto: 'Compra a ' + distri.nombre, monto: 30000, medio: 'transferencia', proveedorId: distri.id, pagoProveedor: true, compraId: compra1.id })
+  gastos.push({ tipo: 'gasto', fecha: sumarDias(hoy, -12), categoria: 'Mercadería', concepto: 'Compra a Keyline', monto: 25500, medio: 'transferencia', proveedorId: keyline.id, pagoProveedor: true, compraId: compra2.id })
+  Datos.guardarVarias([].concat(productos, [distri, keyline], [rossi, gomez, lopez, consorcio], trabajos, pagos, movs, gastos, [compra1, compra2]))
 }

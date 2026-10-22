@@ -6,14 +6,16 @@
 // por seccion: trabajos.js, clientes.js, cuentas.js, stock.js, caja.js,
 // ajustes.js y pdf.js.
 
-const VERSION_APP = '1.0'
+const VERSION_APP = '1.1'
 const APP = { vista: 'inicio', listo: false, email: null, filtros: {} }
 
 const SECCIONES = [
   { id: 'inicio', nombre: 'Inicio', icono: 'inicio' },
+  { id: 'agenda', nombre: 'Agenda', icono: 'calendario' },
   { id: 'trabajos', nombre: 'Trabajos', icono: 'trabajo' },
   { id: 'clientes', nombre: 'Clientes', icono: 'cliente' },
   { id: 'cuentas', nombre: 'Cuentas y fiado', icono: 'cuenta' },
+  { id: 'proveedores', nombre: 'Proveedores', icono: 'camion' },
   { id: 'stock', nombre: 'Stock', icono: 'stock' },
   { id: 'caja', nombre: 'Caja y gastos', icono: 'caja' },
   { id: 'ajustes', nombre: 'Ajustes', icono: 'ajustes' }
@@ -119,7 +121,9 @@ function insignias () {
   const st = Calculo.stock(Datos.lista('movstock'), Datos.lista('trabajo'))
   let bajos = 0
   for (const p of Datos.lista('producto')) if (p.activo !== false && Number(p.minimo) > 0 && Calculo.estadoStock(st.get(p.id) || 0, p.minimo) !== 'ok') bajos++
-  return { cuentas: vencidos, stock: bajos }
+  const provVencidos = deudasProveedoresVencidas(hoy).length
+  const atrasados = Datos.lista('trabajo').filter((t) => t.clase === 'trabajo' && (t.estado === 'pendiente' || t.estado === 'en_curso') && t.fecha && diaDe(t.fecha) < hoy).length
+  return { cuentas: vencidos, stock: bajos, proveedores: provVencidos, agenda: atrasados }
 }
 
 function irA (vista, filtro) {
@@ -140,13 +144,13 @@ function pintar () {
     el('button', { clase: 'btn primario', estilo: { margin: '0 4px 10px', width: 'calc(100% - 8px)', justifyContent: 'center' }, onclick: menuNuevo }, icono('sumar'), 'Nuevo'),
     SECCIONES.map((s) => el('button', { clase: APP.vista === s.id ? 'activo' : '', onclick: () => irA(s.id) }, icono(s.icono), s.nombre, insignia(ins[s.id]))),
     el('div', { estilo: { marginTop: 'auto', padding: '12px' }, clase: 'sub' }, 'Versión ' + VERSION_APP + (PRUEBA ? ' · prueba' : '')))
-  const enMas = ['cuentas', 'stock', 'caja', 'ajustes'].includes(APP.vista)
+  const enMas = ['cuentas', 'proveedores', 'stock', 'caja', 'ajustes'].includes(APP.vista)
   poner(document.getElementById('tabbar'),
     el('button', { clase: APP.vista === 'inicio' ? 'activo' : '', onclick: () => irA('inicio') }, icono('inicio'), 'Inicio'),
-    el('button', { clase: APP.vista === 'trabajos' ? 'activo' : '', onclick: () => irA('trabajos') }, icono('trabajo'), 'Trabajos'),
+    el('button', { clase: APP.vista === 'trabajos' || APP.vista === 'agenda' ? 'activo' : '', onclick: () => irA(APP.vista === 'agenda' ? 'agenda' : 'trabajos') }, icono('trabajo'), 'Trabajos', insignia(ins.agenda)),
     el('button', { clase: 'escanear', 'aria-label': 'Nuevo', onclick: menuNuevo }, el('span', { clase: 'bola' }, icono('sumar')), 'Nuevo'),
     el('button', { clase: APP.vista === 'clientes' ? 'activo' : '', onclick: () => irA('clientes') }, icono('cliente'), 'Clientes'),
-    el('button', { clase: enMas ? 'activo' : '', onclick: menuMas }, icono('mas'), enMas ? SECCIONES.find((s) => s.id === APP.vista).nombre.split(' ')[0] : 'Más', insignia(ins.cuentas + ins.stock)))
+    el('button', { clase: enMas ? 'activo' : '', onclick: menuMas }, icono('mas'), enMas ? SECCIONES.find((s) => s.id === APP.vista).nombre.split(' ')[0] : 'Más', insignia(ins.cuentas + ins.stock + ins.proveedores)))
   const arriba = el('div', { clase: 'arriba' },
     el('div', { clase: 'quien' }, el('div', { clase: 'negocio' }, conf.negocio), el('div', { clase: 'sub' }, fechaCorta(hoyISO()))),
     el('button', { clase: 'btn-ico', 'aria-label': 'Buscar', onclick: buscarTodo }, icono('buscar')),
@@ -161,10 +165,10 @@ function menuMas () {
   const ins = insignias()
   const h = hoja({
     titulo: 'Más',
-    cuerpo: eleccion(SECCIONES.filter((s) => ['cuentas', 'stock', 'caja', 'ajustes'].includes(s.id)).map((s) => ({
+    cuerpo: eleccion(SECCIONES.filter((s) => ['agenda', 'cuentas', 'proveedores', 'stock', 'caja', 'ajustes'].includes(s.id)).map((s) => ({
       id: s.id, nombre: s.nombre, icono: s.icono,
-      sub: s.id === 'cuentas' && ins.cuentas ? ins.cuentas + ' cobros vencidos' : s.id === 'stock' && ins.stock ? ins.stock + ' productos para reponer' : null,
-      clase: (s.id === 'cuentas' && ins.cuentas) || (s.id === 'stock' && ins.stock) ? 'con-alerta' : ''
+      sub: s.id === 'cuentas' && ins.cuentas ? ins.cuentas + ' cobros vencidos' : s.id === 'stock' && ins.stock ? ins.stock + ' productos para reponer' : s.id === 'proveedores' && ins.proveedores ? cuantos(ins.proveedores, 'pago vencido', 'pagos vencidos') : s.id === 'agenda' && ins.agenda ? cuantos(ins.agenda, 'trabajo atrasado', 'trabajos atrasados') : null,
+      clase: ins[s.id] && s.id !== 'caja' ? 'con-alerta' : ''
     })), (x) => { h.cerrar(); irA(x.id) })
   })
 }
@@ -179,7 +183,9 @@ function menuNuevo () {
       { id: 'pago', nombre: 'Cobrar a un cliente', sub: 'Un pago de lo que debe', icono: 'plata' },
       { id: 'cliente', nombre: 'Cliente', icono: 'cliente' },
       { id: 'gasto', nombre: 'Gasto', icono: 'gasto' },
-      { id: 'compra', nombre: 'Entró mercadería', sub: 'Suma al stock', icono: 'stock' }
+      { id: 'compra', nombre: 'Compra / entró mercadería', sub: 'Suma al stock; pagada o a cuenta del proveedor', icono: 'stock' },
+      { id: 'pagoprov', nombre: 'Pagarle a un proveedor', icono: 'camion' },
+      { id: 'proveedor', nombre: 'Proveedor', icono: 'camion' }
     ], (x) => {
       h.cerrar()
       if (x.id === 'trabajo' || x.id === 'presupuesto' || x.id === 'venta') editarTrabajo({ clase: x.id })
@@ -187,6 +193,8 @@ function menuNuevo () {
       else if (x.id === 'cliente') editarCliente(null, (c) => verCliente(c.id))
       else if (x.id === 'gasto') editarGasto()
       else if (x.id === 'compra') entradaMercaderia()
+      else if (x.id === 'pagoprov') pagarProveedor({})
+      else if (x.id === 'proveedor') editarProveedor(null, (p) => verProveedor(p.id))
     })
   })
 }
@@ -221,6 +229,14 @@ VISTAS.inicio = function (main) {
     el('div', { clase: 'txt' }, el('b', {}, cheques.length === 1 ? '1 cheque para depositar' : cheques.length + ' cheques para depositar'), el('span', { clase: 'sub' }, plata(cheques.reduce((s, p) => s + p.monto, 0)))), icono('flecha')))
   if (ins.stock) alertas.push(el('button', { clase: 'alerta-fila alerta', onclick: () => irA('stock', 'reponer') }, el('div', { clase: 'ico' }, icono('stock')),
     el('div', { clase: 'txt' }, el('b', {}, ins.stock === 1 ? '1 producto para reponer' : ins.stock + ' productos para reponer'), el('span', { clase: 'sub' }, 'Llegaron al mínimo o no quedan')), icono('flecha')))
+  const provVenc = deudasProveedoresVencidas(hoy)
+  if (provVenc.length) {
+    const provs = [...new Set(provVenc.map((x) => x.proveedorId))]
+    alertas.push(el('button', { clase: 'alerta-fila alerta', onclick: () => provs.length === 1 ? verProveedor(provs[0]) : irA('proveedores', 'debo') }, el('div', { clase: 'ico' }, icono('camion')),
+      el('div', { clase: 'txt' }, el('b', {}, provs.length === 1 ? 'Tenés que pagarle a ' + nombreProveedor(provs[0]) : 'Tenés que pagarle a ' + provs.length + ' proveedores'), el('span', { clase: 'sub' }, plata(provVenc.reduce((s, x) => s + x.deuda.saldo, 0)) + ' · vence hoy o ya venció')), icono('flecha')))
+  }
+  if (ins.agenda) alertas.push(el('button', { clase: 'alerta-fila alerta', onclick: () => irA('agenda') }, el('div', { clase: 'ico' }, icono('calendario')),
+    el('div', { clase: 'txt' }, el('b', {}, cuantos(ins.agenda, 'trabajo quedó atrasado', 'trabajos quedaron atrasados')), el('span', { clase: 'sub' }, 'Tenían fecha de antes de hoy: terminalos o cambiales la fecha')), icono('flecha')))
   if (seguir.length) alertas.push(el('button', { clase: 'alerta-fila info', onclick: () => verSeguimientos() }, el('div', { clase: 'ico' }, icono('escudo')),
     el('div', { clase: 'txt' }, el('b', {}, 'Postventa: ' + (seguir.length === 1 ? '1 cliente para llamar' : seguir.length + ' clientes para llamar')), el('span', { clase: 'sub' }, 'Preguntales cómo les anduvo el trabajo')), icono('flecha')))
 
@@ -242,8 +258,8 @@ VISTAS.inicio = function (main) {
       acceso('Cobrar', 'plata', () => registrarPago({})),
       acceso('Cliente', 'cliente', () => editarCliente(null, (c) => verCliente(c.id))),
       acceso('Gasto', 'gasto', () => editarGasto()),
-      acceso('Mercadería', 'stock', () => entradaMercaderia()),
-      acceso('Caja', 'caja', () => irA('caja'))),
+      acceso('Compra', 'stock', () => entradaMercaderia()),
+      acceso('Agenda', 'calendario', () => irA('agenda'))),
     el('div', { clase: 'tarjeta sin-relleno' },
       el('div', { clase: 'tarjeta-cab', estilo: { padding: '10px 16px 0' } }, el('h2', {}, 'Para hacer'), el('button', { clase: 'btn chico', onclick: () => irA('trabajos', 'abiertos') }, 'Ver todos')),
       agenda.length ? el('div', { clase: 'lista' }, agenda.slice(0, 8).map((t) => filaTrabajo(t, hoy))) : vacio('No hay trabajos pendientes.', 'trabajo', el('button', { clase: 'btn primario', onclick: () => editarTrabajo({ clase: 'trabajo' }) }, icono('sumar'), 'Nuevo trabajo'))),
@@ -303,12 +319,14 @@ function buscarTodo () {
     const num = /^#?\d+$/.test(q) ? Number(q.replace('#', '')) : null
     const trabajos = Datos.lista('trabajo').filter((t) => (num && t.numero === num) || (!num && coincide([t.servicio, t.descripcion, (Datos.get(t.clienteId) || {}).nombre].join(' '), q))).sort((a, b) => b.numero - a.numero).slice(0, 8)
     const productos = Datos.lista('producto').filter((p) => coincide([p.nombre, p.codigo, p.marca, p.categoria].join(' '), q)).slice(0, 8)
+    const provs = Datos.lista('proveedor').filter((p) => coincide([p.nombre, p.rubro, p.contacto, p.telefono, p.cuit].join(' '), q)).slice(0, 6)
     const grupo = (titulo, filas) => filas.length ? [el('h3', {}, titulo), el('div', { clase: 'tarjeta sin-relleno lista' }, filas)] : null
     poner(res,
       grupo('Clientes', clientes.map((c) => el('button', { clase: 'item', onclick: ir(() => verCliente(c.id)) }, el('div', { clase: 'cuerpo' }, el('b', {}, c.nombre), el('span', { clase: 'sub' }, [c.telefono, [...new Set((c.domicilios || []).map((d) => d.direccion))].join(' · ')].filter(Boolean).join(' · '))), icono('flecha', 'tenue')))),
       grupo('Trabajos', trabajos.map((t) => filaTrabajo(t, hoyISO(), ir(() => verTrabajo(t.id))))),
       grupo('Productos', productos.map((p) => el('button', { clase: 'item', onclick: ir(() => verProducto(p.id)) }, el('div', { clase: 'cuerpo' }, el('b', {}, p.nombre), el('span', { clase: 'sub' }, [p.codigo, p.marca].filter(Boolean).join(' · '))), el('div', { clase: 'fin num' }, plata(Calculo.precioProducto(p, Datos.config().redondeo)))))),
-      !clientes.length && !trabajos.length && !productos.length ? vacio('No encontré nada con "' + q + '".', 'buscar', el('button', { clase: 'btn primario', onclick: ir(() => editarCliente({ nombre: q }, (c) => verCliente(c.id))) }, icono('sumar'), 'Crear cliente "' + q + '"')) : null)
+      grupo('Proveedores', provs.map((p) => el('button', { clase: 'item', onclick: ir(() => verProveedor(p.id)) }, el('div', { clase: 'cuerpo' }, el('b', {}, p.nombre), el('span', { clase: 'sub' }, [p.rubro, p.telefono].filter(Boolean).join(' · '))), icono('flecha', 'tenue')))),
+      !clientes.length && !trabajos.length && !productos.length && !provs.length ? vacio('No encontré nada con "' + q + '".', 'buscar', el('button', { clase: 'btn primario', onclick: ir(() => editarCliente({ nombre: q }, (c) => verCliente(c.id))) }, icono('sumar'), 'Crear cliente "' + q + '"')) : null)
   }
   input.addEventListener('input', buscar)
   document.body.append(capa)

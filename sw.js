@@ -4,10 +4,10 @@
 //     primero pide la version nueva y, si no hay conexion, usa la guardada.
 // Los datos los maneja la app (datos.js: copia en el navegador + la nube).
 
-const VERSION = 'mb-servicios-1.0'
-const V = '?v=1.0'
+const VERSION = 'mb-servicios-1.1'
+const V = '?v=1.1'
 const APP = ['./', 'index.html', 'manifest.webmanifest', 'icono-64.png', 'icono-192.png', 'icono-512.png', 'logo.jpg']
-  .concat(['estilos.css', 'calculo.js', 'comun.js', 'datos.js', 'app.js', 'trabajos.js', 'clientes.js', 'cuentas.js', 'stock.js', 'caja.js', 'ajustes.js', 'pdf.js', 'ejemplo.js'].map((f) => f + V))
+  .concat(['estilos.css', 'calculo.js', 'comun.js', 'datos.js', 'app.js', 'trabajos.js', 'clientes.js', 'cuentas.js', 'stock.js', 'proveedores.js', 'agenda.js', 'caja.js', 'ajustes.js', 'pdf.js', 'ejemplo.js'].map((f) => f + V))
 const LIBRERIAS = ['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js']
 
 self.addEventListener('install', (ev) => {

@@ -250,12 +250,81 @@
     return sinTildes(busqueda).split(/\s+/).filter(Boolean).every((p) => t.includes(p))
   }
 
+  // --- proveedores ------------------------------------------------------------------------------
+  // compra: { id, proveedorId, fecha, total, vence, anulada }. Los pagos al proveedor son gastos con
+  // pagoProveedor: true (con compraId si se pago esa compra, sin compraId si fue a cuenta).
+  // Un gasto con proveedorId pero sin pagoProveedor es un gasto directo (no baja la deuda).
+  const compraValida = (c) => !!c && !c.borrado && !c.anulada
+  const esPagoProveedor = (g) => !!g && !g.borrado && !!g.pagoProveedor
+  function cuentaProveedor (compras, pagos) {
+    const validas = compras.filter(compraValida).sort((a, b) => diaDe(a.fecha).localeCompare(diaDe(b.fecha)) || String(a.creado || '').localeCompare(String(b.creado || '')))
+    const ids = new Set(validas.map((c) => c.id))
+    const porCompra = new Map()
+    let pozo = 0
+    for (const p of pagos.filter(esPagoProveedor)) {
+      const m = Number(p.monto) || 0
+      if (p.compraId && ids.has(p.compraId)) porCompra.set(p.compraId, (porCompra.get(p.compraId) || 0) + m)
+      else pozo += m
+    }
+    const filas = validas.map((c) => {
+      const total = r2(c.total)
+      const directo = porCompra.get(c.id) || 0
+      const pagado = Math.min(directo, total)
+      pozo += directo - pagado
+      return { compra: c, total, pagado }
+    })
+    for (const f of filas) {
+      const falta = f.total - f.pagado
+      if (falta > 0 && pozo > 0) { const usa = Math.min(falta, pozo); f.pagado += usa; pozo -= usa }
+      f.pagado = r2(f.pagado)
+      f.saldo = r2(f.total - f.pagado)
+      f.vence = f.compra.vence || null
+    }
+    const deudas = filas.filter((f) => f.saldo > 0.009)
+    const debe = r2(deudas.reduce((a, f) => a + f.saldo, 0))
+    return { filas, deudas, debe, aFavor: r2(pozo), saldo: r2(debe - pozo) }
+  }
+  function cuentasProveedores (compras, gastos) {
+    const cs = new Map(); const gs = new Map()
+    for (const c of compras) if (c.proveedorId) { if (!cs.has(c.proveedorId)) cs.set(c.proveedorId, []); cs.get(c.proveedorId).push(c) }
+    for (const g of gastos) if (g.proveedorId) { if (!gs.has(g.proveedorId)) gs.set(g.proveedorId, []); gs.get(g.proveedorId).push(g) }
+    const out = new Map()
+    for (const id of new Set([...cs.keys(), ...gs.keys()])) out.set(id, cuentaProveedor(cs.get(id) || [], gs.get(id) || []))
+    return out
+  }
+  // Cuanto se gasto con cada proveedor entre dos dias:
+  //   comprado = compras; directo = gastos sin compra (nafta, un servicio); total = comprado + directo;
+  //   pagado = toda la plata que salio hacia ese proveedor (pagos de compras + gastos directos).
+  function gastoProveedores (compras, gastos, desde, hasta) {
+    const out = new Map()
+    const fila = (id) => { if (!out.has(id)) out.set(id, { comprado: 0, directo: 0, total: 0, pagado: 0 }); return out.get(id) }
+    const dentro = (x) => { const d = diaDe(x); return d >= desde && d <= hasta }
+    for (const c of compras) if (c.proveedorId && compraValida(c) && dentro(c.fecha)) fila(c.proveedorId).comprado += Number(c.total) || 0
+    for (const g of gastos) {
+      if (!g.proveedorId || g.borrado || !dentro(g.fecha)) continue
+      const f = fila(g.proveedorId)
+      f.pagado += Number(g.monto) || 0
+      if (!g.pagoProveedor) f.directo += Number(g.monto) || 0
+    }
+    for (const f of out.values()) { f.comprado = r2(f.comprado); f.directo = r2(f.directo); f.pagado = r2(f.pagado); f.total = r2(f.comprado + f.directo) }
+    return out
+  }
+
+  // --- agenda ---------------------------------------------------------------------------------------
+  // El lunes de la semana de ese dia.
+  function inicioSemana (dia) {
+    const [a, m, d] = String(dia).slice(0, 10).split('-').map(Number)
+    const dow = new Date(a, m - 1, d).getDay()
+    return sumarDias(dia, dow === 0 ? -6 : 1 - dow)
+  }
+
   const Calculo = {
     r2, diaISO, hoyISO, sumarDias, diasEntre, diaDe, fmtPlata, fmtCant, fechaCorta, horaCorta,
     redondearPrecio, precioDesdeCosto, porcentajeDesdePrecio, precioProducto,
     totalesTrabajo, esCobrable, diaTrabajo, garantia,
     pagoValido, cuentaCliente, cuentas, saldoTrabajo, estadoVence,
-    stock, estadoStock, MEDIOS, caja, resumen, telefonoWA, sinTildes, coincide
+    stock, estadoStock, MEDIOS, caja, resumen, telefonoWA, sinTildes, coincide,
+    compraValida, esPagoProveedor, cuentaProveedor, cuentasProveedores, gastoProveedores, inicioSemana
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = Calculo
   else raiz.Calculo = Calculo
